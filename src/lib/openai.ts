@@ -6,13 +6,13 @@ if (!process.env.OPENAI_API_KEY) {
   console.error('❌ OPENAI_API_KEY não configurada')
 }
 
-// Cliente OpenAI com nova API
-const client = new OpenAI({
+// Cliente OpenAI oficial
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
 /**
- * Classifica e-mails usando GPT-4.1-mini com nova API /v1/responses
+ * Classifica e-mails usando GPT-4o-mini com API oficial da OpenAI
  */
 export async function classifyEmails(emails: ParsedEmail[]): Promise<AnalysisResult> {
   if (!emails || emails.length === 0) {
@@ -62,36 +62,36 @@ Retorne APENAS um JSON válido no seguinte formato (sem texto adicional):
 }`
 
   try {
-    console.log(`🤖 Analisando ${emails.length} e-mails com GPT-4.1-mini (nova API)...`)
+    console.log(`🤖 Analisando ${emails.length} e-mails com GPT-4o-mini (API oficial)...`)
 
-    // Usar nova API /v1/responses
-    const response = await client.responses.create({
-      model: 'gpt-4.1-mini',
-      input: prompt,
-      response_format: { type: 'json_object' }
+    // Usar API oficial da OpenAI v4
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'Você é um assistente especializado em classificar e-mails. Sempre retorne respostas em formato JSON válido.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.3,
+      max_tokens: 2000
     })
 
-    // Extrair texto da resposta (novo formato)
-    let responseText: string | null = null
-    
-    // Tentar extrair de diferentes formatos possíveis
-    if (response.output && Array.isArray(response.output) && response.output[0]) {
-      // Formato: response.output[0].content[0].text
-      if (response.output[0].content && Array.isArray(response.output[0].content)) {
-        responseText = response.output[0].content[0]?.text
-      }
-    } else if (response.output_text) {
-      // Formato alternativo: response.output_text
-      responseText = response.output_text
-    }
+    // Extrair resposta
+    const responseText = completion.choices[0]?.message?.content
 
     if (!responseText) {
-      console.error('❌ Resposta vazia da OpenAI (nova API)')
-      console.error('Estrutura da resposta:', JSON.stringify(response, null, 2))
+      console.error('❌ Resposta vazia da OpenAI')
+      console.error('Estrutura da resposta:', JSON.stringify(completion, null, 2))
       throw new Error('Resposta vazia da IA')
     }
 
-    console.log('✅ Resposta recebida da OpenAI (nova API)')
+    console.log('✅ Resposta recebida da OpenAI')
 
     // Parse do JSON
     let parsed: any
@@ -144,19 +144,21 @@ Retorne APENAS um JSON válido no seguinte formato (sem texto adicional):
     
     // Log detalhado do erro
     if (error.response) {
-      console.error('Resposta de erro da API:', {
-        status: error.response.status,
-        data: error.response.data
-      })
+      console.error('OPENAI ERROR - Status:', error.response.status)
+      console.error('OPENAI ERROR - Data:', error.response.data)
     }
     
     // Log da mensagem de erro específica
     if (error.message) {
-      console.error('Mensagem de erro:', error.message)
+      console.error('OPENAI ERROR:', error.message)
     }
     
-    if (error.message?.includes('API key')) {
+    if (error.message?.includes('API key') || error.message?.includes('Incorrect API key')) {
       throw new Error('Chave da OpenAI inválida ou não configurada')
+    }
+    
+    if (error.message?.includes('quota') || error.message?.includes('rate limit')) {
+      throw new Error('Limite de uso da OpenAI atingido')
     }
     
     throw new Error(`Erro ao chamar OpenAI API: ${error.message || 'Erro desconhecido'}`)

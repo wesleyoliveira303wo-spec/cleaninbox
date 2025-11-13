@@ -10,7 +10,7 @@ export const runtime = 'nodejs'
 
 /**
  * POST /api/analyze
- * Analisa e-mails usando IA (GPT-4.1-mini) e salva histórico no Supabase
+ * Analisa e-mails usando IA (GPT-4o-mini) e salva histórico no Supabase
  */
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +18,11 @@ export async function POST(request: NextRequest) {
     if (!process.env.OPENAI_API_KEY) {
       console.error('❌ OPENAI_API_KEY não configurada')
       return NextResponse.json(
-        { success: false, error: 'Chave da OpenAI não configurada no servidor' },
+        { 
+          success: false, 
+          error: 'AI_ERROR',
+          details: 'Chave da OpenAI não configurada no servidor' 
+        },
         { status: 500 }
       )
     }
@@ -29,7 +33,11 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.email) {
       console.warn('⚠️ Tentativa de análise sem autenticação')
       return NextResponse.json(
-        { success: false, error: 'Não autenticado. Faça login para continuar.' },
+        { 
+          success: false, 
+          error: 'AUTH_ERROR',
+          details: 'Não autenticado. Faça login para continuar.' 
+        },
         { status: 401 }
       )
     }
@@ -41,7 +49,11 @@ export async function POST(request: NextRequest) {
     if (!dbUser) {
       console.error(`❌ Usuário não encontrado no banco: ${session.user.email}`)
       return NextResponse.json(
-        { success: false, error: 'Usuário não encontrado no sistema' },
+        { 
+          success: false, 
+          error: 'USER_ERROR',
+          details: 'Usuário não encontrado no sistema' 
+        },
         { status: 404 }
       )
     }
@@ -53,7 +65,11 @@ export async function POST(request: NextRequest) {
     } catch (parseError) {
       console.error('❌ Erro ao fazer parse do JSON da requisição:', parseError)
       return NextResponse.json(
-        { success: false, error: 'JSON inválido na requisição' },
+        { 
+          success: false, 
+          error: 'REQUEST_ERROR',
+          details: 'JSON inválido na requisição' 
+        },
         { status: 400 }
       )
     }
@@ -64,7 +80,11 @@ export async function POST(request: NextRequest) {
     if (!emails || !Array.isArray(emails)) {
       console.error('❌ Campo "emails" ausente ou inválido')
       return NextResponse.json(
-        { success: false, error: 'O campo "emails" é obrigatório e deve ser um array' },
+        { 
+          success: false, 
+          error: 'VALIDATION_ERROR',
+          details: 'O campo "emails" é obrigatório e deve ser um array' 
+        },
         { status: 400 }
       )
     }
@@ -72,14 +92,18 @@ export async function POST(request: NextRequest) {
     if (emails.length === 0) {
       console.warn('⚠️ Array de e-mails vazio')
       return NextResponse.json(
-        { success: false, error: 'A lista de e-mails está vazia' },
+        { 
+          success: false, 
+          error: 'VALIDATION_ERROR',
+          details: 'A lista de e-mails está vazia' 
+        },
         { status: 400 }
       )
     }
 
     console.log(`📊 Analisando ${emails.length} e-mails para ${session.user.email}`)
 
-    // 6. Analisar e-mails com GPT-4.1-mini (nova API)
+    // 6. Analisar e-mails com GPT-4o-mini (API oficial)
     let result
     try {
       result = await analyzeEmails(emails as ParsedEmail[])
@@ -93,15 +117,15 @@ export async function POST(request: NextRequest) {
       console.log(`✅ Análise concluída: ${result.classifications.length} e-mails classificados`)
     } catch (aiError: any) {
       console.error('❌ Erro na análise com IA:', aiError)
+      console.error('OPENAI ERROR:', aiError.message)
       
       // Log detalhado da mensagem de erro
       const errorMessage = aiError.message || 'Erro desconhecido ao chamar OpenAI API'
-      console.error('Mensagem de erro detalhada:', errorMessage)
       
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Erro ao analisar e-mails',
+          error: 'AI_ERROR',
           details: errorMessage
         },
         { status: 500 }
@@ -142,11 +166,13 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('❌ Erro geral ao processar análise:', error)
+    console.error('OPENAI ERROR:', error.message)
+    
     return NextResponse.json(
       { 
         success: false, 
-        error: 'Erro interno ao processar análise',
-        message: error.message || 'Erro desconhecido'
+        error: 'INTERNAL_ERROR',
+        details: error.message || 'Erro desconhecido'
       },
       { status: 500 }
     )
