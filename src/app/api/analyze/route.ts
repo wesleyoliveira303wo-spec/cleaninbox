@@ -10,7 +10,7 @@ export const runtime = 'nodejs'
 
 /**
  * POST /api/analyze
- * Analisa e-mails usando IA (GPT-4) e salva histórico no Supabase
+ * Analisa e-mails usando IA (GPT-4.1-mini) e salva histórico no Supabase
  */
 export async function POST(request: NextRequest) {
   try {
@@ -79,18 +79,30 @@ export async function POST(request: NextRequest) {
 
     console.log(`📊 Analisando ${emails.length} e-mails para ${session.user.email}`)
 
-    // 6. Analisar e-mails com GPT-4
+    // 6. Analisar e-mails com GPT-4.1-mini (nova API)
     let result
     try {
       result = await analyzeEmails(emails as ParsedEmail[])
+      
+      // Validar resultado
+      if (!result || !result.classifications || !result.summary) {
+        console.error('❌ Resultado da análise inválido ou vazio')
+        throw new Error('Resultado da análise inválido')
+      }
+      
       console.log(`✅ Análise concluída: ${result.classifications.length} e-mails classificados`)
     } catch (aiError: any) {
       console.error('❌ Erro na análise com IA:', aiError)
+      
+      // Log detalhado da mensagem de erro
+      const errorMessage = aiError.message || 'Erro desconhecido ao chamar OpenAI API'
+      console.error('Mensagem de erro detalhada:', errorMessage)
+      
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Erro ao analisar e-mails com IA',
-          details: aiError.message 
+          error: 'Erro ao analisar e-mails',
+          details: errorMessage
         },
         { status: 500 }
       )
