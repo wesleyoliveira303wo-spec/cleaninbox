@@ -1,24 +1,28 @@
-import NextAuth, { NextAuthOptions } from "next-auth"
+import NextAuth from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 
-export const authOptions: NextAuthOptions = {
+const handler = NextAuth({
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope: 'openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify',
-          access_type: 'offline',
-          prompt: 'consent',
+          scope:
+            "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify",
+          access_type: "offline",
+          prompt: "consent",
         },
       },
     }),
   ],
+
   secret: process.env.NEXTAUTH_SECRET,
+
   pages: {
-    signIn: '/',
+    signIn: "/",
   },
+
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
@@ -27,17 +31,18 @@ export const authOptions: NextAuthOptions = {
       }
       return token
     },
+
     async session({ session, token }) {
       session.accessToken = token.accessToken as string
       return session
     },
+
     async signIn({ user, account }) {
-      // Salvar usuário no Supabase
       if (account && user) {
         try {
-          const response = await fetch(`${process.env.NEXTAUTH_URL}/api/users`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+          await fetch(`${process.env.NEXTAUTH_URL}/api/users`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email: user.email,
               name: user.name,
@@ -45,19 +50,13 @@ export const authOptions: NextAuthOptions = {
               provider: account.provider,
             }),
           })
-          
-          if (!response.ok) {
-            console.error('Erro ao salvar usuário no Supabase')
-          }
         } catch (error) {
-          console.error('Erro ao salvar usuário:', error)
+          console.error("Erro ao salvar usuário:", error)
         }
       }
       return true
     },
   },
-}
-
-const handler = NextAuth(authOptions)
+})
 
 export { handler as GET, handler as POST }
