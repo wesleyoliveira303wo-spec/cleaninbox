@@ -7,10 +7,6 @@ import { Mail, Zap, Shield, Star, Check, ArrowRight, Trash2, BarChart3, Settings
 export default function Home() {
   const [activeTestimonial, setActiveTestimonial] = useState(0)
 
-  const handleGoogleSignIn = () => {
-    signIn('google', { callbackUrl: '/dashboard' })
-  }
-
   const testimonials = [
     {
       name: "Maria Silva",
@@ -135,7 +131,7 @@ export default function Home() {
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
             <button 
-              onClick={handleGoogleSignIn}
+              onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
               className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-2 transition-all transform hover:scale-105 shadow-2xl"
             >
               <Mail className="w-5 h-5" />
@@ -270,9 +266,7 @@ export default function Home() {
                   ))}
                 </ul>
                 
-                <button 
-                  onClick={handleGoogleSignIn}
-                  className={`w-full py-3 rounded-xl font-semibold transition-all ${
+                <button className={`w-full py-3 rounded-xl font-semibold transition-all ${
                   plan.popular
                     ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white'
                     : 'border border-purple-500 text-purple-300 hover:bg-purple-500/10'
@@ -352,7 +346,7 @@ export default function Home() {
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
             <button 
-              onClick={handleGoogleSignIn}
+              onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
               className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-2 transition-all transform hover:scale-105 shadow-2xl"
             >
               <Mail className="w-5 h-5" />

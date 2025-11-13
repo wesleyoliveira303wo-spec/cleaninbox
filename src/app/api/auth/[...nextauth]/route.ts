@@ -31,6 +31,30 @@ export const authOptions: NextAuthOptions = {
       session.accessToken = token.accessToken as string
       return session
     },
+    async signIn({ user, account }) {
+      // Salvar usuário no Supabase
+      if (account && user) {
+        try {
+          const response = await fetch(`${process.env.NEXTAUTH_URL}/api/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: user.email,
+              name: user.name,
+              image: user.image,
+              provider: account.provider,
+            }),
+          })
+          
+          if (!response.ok) {
+            console.error('Erro ao salvar usuário no Supabase')
+          }
+        } catch (error) {
+          console.error('Erro ao salvar usuário:', error)
+        }
+      }
+      return true
+    },
   },
 }
 
