@@ -1,143 +1,139 @@
-import type { EmailMessage } from '@/lib/types'
+import type { GmailMessage, ParsedEmail } from '@/lib/types'
 
-// Extrair domínio do e-mail
-export function extractDomain(email: string): string {
-  const match = email.match(/@([^>]+)/)
-  return match ? match[1].trim() : ''
+/**
+ * Extrai o valor de um header específico
+ */
+export function getHeader(message: GmailMessage, headerName: string): string {
+  const headers = message.payload?.headers || []
+  const header = headers.find(h => h.name.toLowerCase() === headerName.toLowerCase())
+  return header?.value || ''
 }
 
-// Verificar se é domínio brasileiro
-export function isBrazilianDomain(email: string): boolean {
-  const domain = extractDomain(email)
-  return domain.endsWith('.br') || domain.endsWith('.com.br')
-}
-
-// Extrair nome do remetente
-export function extractSenderName(from: string): string {
-  const match = from.match(/^([^<]+)/)
-  return match ? match[1].trim().replace(/"/g, '') : from
-}
-
-// Extrair e-mail do remetente
-export function extractSenderEmail(from: string): string {
-  const match = from.match(/<([^>]+)>/)
-  return match ? match[1].trim() : from
-}
-
-// Verificar se é e-mail promocional (baseado em palavras-chave)
-export function isPromotionalEmail(email: EmailMessage): boolean {
-  const promotionalKeywords = [
-    'oferta', 'desconto', 'promoção', 'cupom', 'frete grátis',
-    'black friday', 'cyber monday', 'liquidação', 'sale',
-    'newsletter', 'novidades', 'lançamento', 'imperdível',
-    'últimas unidades', 'aproveite', 'compre agora'
-  ]
-
-  const subject = email.subject.toLowerCase()
-  const snippet = email.snippet.toLowerCase()
-  const from = email.from.toLowerCase()
-
-  // Verificar palavras-chave
-  const hasKeyword = promotionalKeywords.some(keyword => 
-    subject.includes(keyword) || snippet.includes(keyword)
-  )
-
-  // Verificar domínios comuns de marketing
-  const marketingDomains = [
-    'newsletter', 'marketing', 'promo', 'ofertas', 'news',
-    'noreply', 'no-reply', 'mkt', 'comunicacao'
-  ]
-  const hasMarketingDomain = marketingDomains.some(domain => from.includes(domain))
-
-  return hasKeyword || hasMarketingDomain
-}
-
-// Verificar se é spam/lixo (baseado em padrões)
-export function isJunkEmail(email: EmailMessage): boolean {
-  const junkKeywords = [
-    'ganhe dinheiro', 'clique aqui', 'parabéns você ganhou',
-    'prêmio', 'sorteio', 'viagra', 'casino', 'loteria',
-    'herança', 'urgente', 'confirme seus dados', 'atualize sua conta',
-    'verificação necessária', 'sua conta será suspensa'
-  ]
-
-  const subject = email.subject.toLowerCase()
-  const snippet = email.snippet.toLowerCase()
-  const from = email.from.toLowerCase()
-
-  // Verificar palavras-chave de spam
-  const hasJunkKeyword = junkKeywords.some(keyword => 
-    subject.includes(keyword) || snippet.includes(keyword)
-  )
-
-  // Verificar remetentes suspeitos
-  const suspiciousDomains = [
-    'noreply@spam', 'no-reply@spam', 'info@spam',
-    '@temporary', '@temp', '@disposable'
-  ]
-  const hasSuspiciousDomain = suspiciousDomains.some(domain => from.includes(domain))
-
-  // Verificar excesso de maiúsculas (spam comum)
-  const upperCaseRatio = (subject.match(/[A-Z]/g) || []).length / subject.length
-  const hasExcessiveUpperCase = upperCaseRatio > 0.5 && subject.length > 10
-
-  return hasJunkKeyword || hasSuspiciousDomain || hasExcessiveUpperCase
-}
-
-// Verificar se é e-mail importante
-export function isImportantEmail(email: EmailMessage): boolean {
-  const importantKeywords = [
-    'fatura', 'boleto', 'cobrança', 'pagamento', 'invoice',
-    'reunião', 'meeting', 'entrevista', 'contrato', 'proposta',
-    'documento', 'confirmação', 'pedido', 'compra realizada',
-    'senha', 'segurança', 'verificação', 'autenticação',
-    'banco', 'cartão', 'conta', 'extrato'
-  ]
-
-  const importantDomains = [
-    'gov.br', 'receita.fazenda.gov.br', 'inss.gov.br',
-    'itau.com.br', 'bradesco.com.br', 'santander.com.br',
-    'bb.com.br', 'caixa.gov.br', 'nubank.com.br',
-    'mercadopago.com', 'paypal.com', 'pagseguro.uol.com.br'
-  ]
-
-  const subject = email.subject.toLowerCase()
-  const snippet = email.snippet.toLowerCase()
-  const domain = extractDomain(email.from).toLowerCase()
-
-  // Verificar palavras-chave importantes
-  const hasImportantKeyword = importantKeywords.some(keyword => 
-    subject.includes(keyword) || snippet.includes(keyword)
-  )
-
-  // Verificar domínios importantes
-  const hasImportantDomain = importantDomains.some(importantDomain => 
-    domain.includes(importantDomain)
-  )
-
-  return hasImportantKeyword || hasImportantDomain
-}
-
-// Classificar e-mail localmente (fallback se IA falhar)
-export function classifyEmailLocally(email: EmailMessage): 'Importante' | 'Promoção' | 'Lixo' {
-  // Prioridade: Lixo > Importante > Promoção
-  if (isJunkEmail(email)) {
-    return 'Lixo'
+/**
+ * Extrai todos os headers importantes
+ */
+export function extractHeaders(message: GmailMessage) {
+  return {
+    from: getHeader(message, 'From'),
+    to: getHeader(message, 'To'),
+    subject: getHeader(message, 'Subject'),
+    date: getHeader(message, 'Date'),
+    messageId: getHeader(message, 'Message-ID'),
+    replyTo: getHeader(message, 'Reply-To')
   }
-  
-  if (isImportantEmail(email)) {
-    return 'Importante'
-  }
-  
-  if (isPromotionalEmail(email)) {
-    return 'Promoção'
+}
+
+/**
+ * Extrai o corpo do e-mail (texto plano)
+ */
+export function extractBody(message: GmailMessage): string {
+  // Tenta extrair do body direto
+  if (message.payload?.body?.data) {
+    return decodeBase64(message.payload.body.data)
   }
 
-  // Padrão: considerar importante se não se encaixar em nenhuma categoria
-  return 'Importante'
+  // Tenta extrair das parts
+  if (message.payload?.parts) {
+    // Procura por text/plain primeiro
+    const textPart = message.payload.parts.find(part => part.mimeType === 'text/plain')
+    if (textPart?.body?.data) {
+      return decodeBase64(textPart.body.data)
+    }
+
+    // Se não encontrar, procura por text/html
+    const htmlPart = message.payload.parts.find(part => part.mimeType === 'text/html')
+    if (htmlPart?.body?.data) {
+      return stripHtml(decodeBase64(htmlPart.body.data))
+    }
+
+    // Procura recursivamente em parts aninhadas
+    for (const part of message.payload.parts) {
+      if (part.parts) {
+        const nestedTextPart = part.parts.find(p => p.mimeType === 'text/plain')
+        if (nestedTextPart?.body?.data) {
+          return decodeBase64(nestedTextPart.body.data)
+        }
+      }
+    }
+  }
+
+  // Fallback para snippet
+  return message.snippet || ''
 }
 
-// Formatar data para exibição
+/**
+ * Decodifica string base64 do Gmail
+ */
+function decodeBase64(data: string): string {
+  try {
+    // Gmail usa base64url (substitui + por - e / por _)
+    const base64 = data.replace(/-/g, '+').replace(/_/g, '/')
+    return Buffer.from(base64, 'base64').toString('utf-8')
+  } catch (error) {
+    console.error('Erro ao decodificar base64:', error)
+    return ''
+  }
+}
+
+/**
+ * Remove tags HTML de uma string
+ */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>.*?<\/style>/gi, '')
+    .replace(/<script[^>]*>.*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .trim()
+}
+
+/**
+ * Extrai o endereço de e-mail de uma string "Nome <email@domain.com>"
+ */
+export function extractEmailAddress(fromString: string): string {
+  const match = fromString.match(/<([^>]+)>/)
+  return match ? match[1] : fromString.trim()
+}
+
+/**
+ * Extrai o nome do remetente
+ */
+export function extractSenderName(fromString: string): string {
+  const match = fromString.match(/^([^<]+)</)
+  return match ? match[1].trim().replace(/"/g, '') : ''
+}
+
+/**
+ * Converte mensagem do Gmail para formato simplificado
+ */
+export function parseGmailMessage(message: GmailMessage): ParsedEmail {
+  const headers = extractHeaders(message)
+  const body = extractBody(message)
+
+  return {
+    id: message.id,
+    from: headers.from,
+    subject: headers.subject,
+    snippet: message.snippet,
+    date: headers.date || message.internalDate || new Date().toISOString(),
+    body: body || message.snippet
+  }
+}
+
+/**
+ * Converte múltiplas mensagens do Gmail
+ */
+export function parseGmailMessages(messages: GmailMessage[]): ParsedEmail[] {
+  return messages.map(parseGmailMessage)
+}
+
+/**
+ * Formata data do e-mail para formato legível
+ */
 export function formatEmailDate(dateString: string): string {
   try {
     const date = new Date(dateString)
@@ -151,19 +147,32 @@ export function formatEmailDate(dateString: string): string {
       return 'Ontem'
     } else if (diffDays < 7) {
       return `${diffDays} dias atrás`
-    } else if (diffDays < 30) {
-      const weeks = Math.floor(diffDays / 7)
-      return `${weeks} ${weeks === 1 ? 'semana' : 'semanas'} atrás`
     } else {
       return date.toLocaleDateString('pt-BR')
     }
-  } catch {
+  } catch (error) {
     return dateString
   }
 }
 
-// Truncar texto
+/**
+ * Trunca texto longo
+ */
 export function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text
-  return text.substring(0, maxLength) + '...'
+  if (text.length <= maxLength) {
+    return text
+  }
+  return text.substring(0, maxLength - 3) + '...'
+}
+
+/**
+ * Valida se uma mensagem do Gmail é válida
+ */
+export function isValidGmailMessage(message: any): message is GmailMessage {
+  return (
+    message &&
+    typeof message.id === 'string' &&
+    typeof message.threadId === 'string' &&
+    typeof message.snippet === 'string'
+  )
 }
