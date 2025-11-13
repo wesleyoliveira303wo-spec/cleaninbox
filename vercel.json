@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "package.json", "use": "@vercel/next" }
+  ],
+  "routes": [
+    { "src": "^/dashboard$", "dest": "/dashboard.html", "status": 200 },
+    { "src": "/(.*)", "dest": "/$1" }
+  ],
+  "ignoreCommand": true,
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs20.x"
+    }
+  },
+  "env": {
+    "NEXT_PUBLIC_SUPPRESS_STATIC_GENERATION_WARNING": "true",
+    "NEXT_DISABLE_STATIC_IMAGES": "true"
+  }
+}
