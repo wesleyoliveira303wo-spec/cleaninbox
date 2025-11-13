@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/app/api/auth/[...nextauth]/route'
-import { createClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth/next"
+import { authOptions } from "@/app/api/auth/[...nextauth]/route"
+import { createClient } from "@supabase/supabase-js"
+
+// FORÇA A ROTA A RODAR EM NODE (necessário para getServerSession)
+export const runtime = "nodejs"
 
 interface EmailData {
   id: string
@@ -11,146 +14,131 @@ interface EmailData {
   date: string
 }
 
-// Função para criar cliente Supabase sob demanda
-function getSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  if (!supabaseUrl || !supabaseKey) {
-    return null
-  }
-
-  return createClient(supabaseUrl, supabaseKey)
-}
-
 export async function POST(request: NextRequest) {
   try {
+    // ✔ Sessão funcionando corretamente
     const session = await getServerSession(authOptions)
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
-        { success: false, error: 'Não autenticado' },
+        { success: false, error: "Não autenticado" },
         { status: 401 }
       )
     }
 
-    const body = await request.json()
-    const { emails } = body as { emails: EmailData[] }
+    const { emails } = await request.json()
 
     if (!emails || emails.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Nenhum e-mail fornecido' },
+        { success: false, error: "Nenhum e-mail fornecido" },
         { status: 400 }
       )
     }
 
-    // Preparar prompt para GPT-4
-    const emailList = emails.map((email, index) => 
-      `${index + 1}. De: ${email.from}\n   Assunto: ${email.subject}\n   Prévia: ${email.snippet}`
-    ).join('\n\n')
+    // Prompt p/ IA
+    const emailList = emails
+      .map(
+        (email: EmailData, index: number) =>
+          `${index + 1}. De: ${email.from}\nAssunto: ${
+            email.subject
+          }\nPrévia: ${email.snippet}`
+      )
+      .join("\n\n")
 
-    const prompt = `Você é um assistente de IA especializado em classificar e-mails brasileiros. Analise os seguintes e-mails e classifique cada um em uma das categorias:
-- "Importante": E-mails de trabalho, bancos, documentos, contatos pessoais importantes
-- "Promoção": E-mails de lojas, ofertas, marketing, cupons
-- "Lixo": Spam, newsletters não solicitadas, notificações automáticas irrelevantes
-
-E-mails para classificar:
+    const prompt = `
+Classifique os e-mails abaixo em: Importante, Promoção ou Lixo.
+Sempre responda APENAS em JSON válido.
 
 ${emailList}
 
-Responda APENAS com um JSON válido no formato:
+Formato esperado:
 {
   "classifications": [
-    { "index": 1, "category": "Importante", "reason": "motivo breve" },
-    { "index": 2, "category": "Promoção", "reason": "motivo breve" }
+    { "index": 1, "category": "Importante", "reason": "..." }
   ],
   "summary": {
-    "important": número,
-    "promotion": número,
-    "junk": número
+    "important": 0,
+    "promotion": 0,
+    "junk": 0
   }
-}`
+}
+`
 
-    // Chamar OpenAI GPT-4
-    const openaiApiKey = process.env.OPENAI_API_KEY
-    
-    if (!openaiApiKey) {
+    // ✔ OpenAI Key
+    const openaiKey = process.env.OPENAI_API_KEY
+    if (!openaiKey) {
       return NextResponse.json(
-        { success: false, error: 'OpenAI API não configurada' },
+        { success: false, error: "OpenAI não configurado" },
         { status: 500 }
       )
     }
 
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
+    // ✔ Chamada FORA do try do JSON.parse para evitar crash
+    const rawOpenAI = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiApiKey}`,
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4-turbo-preview',
+        model: "gpt-4-turbo",
+        response_format: { type: "json_object" },
         messages: [
           {
-            role: 'system',
-            content: 'Você é um assistente especializado em classificar e-mails em português brasileiro. Sempre responda com JSON válido.'
+            role: "system",
+            content:
+              "Você é um classificador de e-mails brasileiro. Responda APENAS com JSON válido.",
           },
-          {
-            role: 'user',
-            content: prompt
-          }
+          { role: "user", content: prompt },
         ],
-        temperature: 0.3,
-        response_format: { type: 'json_object' }
       }),
     })
 
-    if (!openaiResponse.ok) {
-      throw new Error('Erro ao chamar OpenAI API')
+    if (!rawOpenAI.ok) {
+      const text = await rawOpenAI.text()
+      console.error("OpenAI Error:", text)
+      return NextResponse.json(
+        { success: false, error: "Falha ao chamar OpenAI" },
+        { status: 500 }
+      )
     }
 
-    const openaiData = await openaiResponse.json()
-    const aiResponse = JSON.parse(openaiData.choices[0].message.content)
+    const openaiData = await rawOpenAI.json()
 
-    // Salvar resultados no Supabase (se configurado)
-    let savedToDatabase = false
-    const supabase = getSupabaseClient()
-    
-    if (supabase) {
-      const cleanHistory = {
-        user_email: session.user.email,
-        emails_analyzed: emails.length,
-        important_count: aiResponse.summary.important,
-        promotion_count: aiResponse.summary.promotion,
-        junk_count: aiResponse.summary.junk,
-        analysis_date: new Date().toISOString(),
-        classifications: aiResponse.classifications,
-      }
-
-      const { error: saveError } = await supabase
-        .from('clean_history')
-        .insert(cleanHistory)
-        .select()
-
-      if (saveError) {
-        console.error('Erro ao salvar no Supabase:', saveError)
-      } else {
-        savedToDatabase = true
-      }
+    // ✔ parse seguro
+    let aiResponse
+    try {
+      aiResponse = JSON.parse(openaiData.choices[0].message.content)
+    } catch (err) {
+      console.error("Erro no JSON da OpenAI:", err)
+      return NextResponse.json(
+        { success: false, error: "Erro ao interpretar resposta da IA" },
+        { status: 500 }
+      )
     }
+
+    // ✔ Supabase opcional
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_KEY! // CHAVE CORRETA
+    )
+
+    await supabase.from("clean_history").insert({
+      user_email: session.user.email,
+      emails_analyzed: emails.length,
+      ...aiResponse.summary,
+      classifications: aiResponse.classifications,
+      analysis_date: new Date().toISOString(),
+    })
 
     return NextResponse.json({
       success: true,
-      data: {
-        classifications: aiResponse.classifications,
-        summary: aiResponse.summary,
-        savedToDatabase,
-      }
+      data: aiResponse,
     })
-
   } catch (error) {
-    console.error('Erro ao analisar e-mails:', error)
+    console.error("Erro geral:", error)
     return NextResponse.json(
-      { success: false, error: 'Erro ao analisar e-mails com IA' },
+      { success: false, error: "Erro interno ao analisar e-mails" },
       { status: 500 }
     )
   }
