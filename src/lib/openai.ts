@@ -1,12 +1,17 @@
 import OpenAI from 'openai'
 import type { ParsedEmail, EmailClassification, AnalysisResult } from './types'
 
+// Validar API Key
+if (!process.env.OPENAI_API_KEY) {
+  console.error('❌ OPENAI_API_KEY não configurada')
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 })
 
 /**
- * Classifica e-mails usando GPT-4
+ * Classifica e-mails usando GPT-4 com novo SDK
  */
 export async function classifyEmails(emails: ParsedEmail[]): Promise<AnalysisResult> {
   if (!emails || emails.length === 0) {
@@ -20,70 +25,100 @@ export async function classifyEmails(emails: ParsedEmail[]): Promise<AnalysisRes
     }
   }
 
-  // Preparar prompt para a IA
+  // Preparar dados dos e-mails para análise
   const emailsFormatted = emails.map((email, index) => ({
     index: index + 1,
+    id: email.id,
     from: email.from,
     subject: email.subject,
     snippet: email.snippet
   }))
 
-  const systemPrompt = `Você é um assistente especializado em classificar e-mails em português brasileiro.
+  const prompt = `Você é um assistente especializado em classificar e-mails em português brasileiro.
 
 Classifique cada e-mail em uma das seguintes categorias:
-- "Importante": E-mails de trabalho, bancos, serviços essenciais, confirmações importantes
-- "Promoção": E-mails de marketing, ofertas, newsletters comerciais, cupons
-- "Lixo": Spam, phishing, e-mails suspeitos, correntes, conteúdo irrelevante
+- "Importante": E-mails de trabalho, bancos, serviços essenciais, confirmações importantes, documentos oficiais
+- "Promoção": E-mails de marketing, ofertas, newsletters comerciais, cupons, propagandas
+- "Lixo": Spam, phishing, e-mails suspeitos, correntes, conteúdo irrelevante ou malicioso
 
 Para cada e-mail, forneça:
-1. O ID do e-mail (índice)
-2. A categoria
+1. O índice do e-mail (campo "index")
+2. A categoria exata ("Importante", "Promoção" ou "Lixo")
 3. Uma breve razão (máximo 50 caracteres)
 
-Retorne APENAS um JSON válido no seguinte formato:
+E-mails para classificar:
+${JSON.stringify(emailsFormatted, null, 2)}
+
+Retorne APENAS um JSON válido no seguinte formato (sem texto adicional):
 {
   "classifications": [
     {
-      "id": "1",
+      "index": 1,
       "category": "Importante",
       "reason": "Fatura bancária"
     }
   ]
 }`
 
-  const userPrompt = `Classifique os seguintes e-mails:
-
-${JSON.stringify(emailsFormatted, null, 2)}
-
-Retorne APENAS o JSON com as classificações.`
-
   try {
+    console.log(`🤖 Analisando ${emails.length} e-mails com GPT-4...`)
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
+        { 
+          role: 'system', 
+          content: 'Você é um classificador de e-mails preciso. Retorne APENAS JSON válido, sem texto adicional.' 
+        },
+        { 
+          role: 'user', 
+          content: prompt 
+        }
       ],
       response_format: { type: 'json_object' },
       temperature: 0.3,
-      max_tokens: 2000
+      max_tokens: 3000
     })
 
     const responseText = completion.choices[0]?.message?.content
     
     if (!responseText) {
+      console.error('❌ Resposta vazia da OpenAI')
       throw new Error('Resposta vazia da IA')
     }
 
-    const parsed = JSON.parse(responseText)
+    console.log('✅ Resposta recebida da OpenAI')
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(responseText)
+    } catch (parseError) {
+      console.error('❌ Erro ao fazer parse do JSON:', parseError)
+      console.error('Resposta recebida:', responseText)
+      throw new Error('JSON inválido retornado pela IA')
+    }
+
+    if (!parsed.classifications || !Array.isArray(parsed.classifications)) {
+      console.error('❌ Formato de resposta inválido:', parsed)
+      throw new Error('Formato de resposta inválido da IA')
+    }
     
-    // Mapear IDs de volta para os IDs reais dos e-mails
-    const classifications: EmailClassification[] = parsed.classifications.map((c: any) => ({
-      id: emails[parseInt(c.id) - 1]?.id || c.id,
-      category: c.category,
-      reason: c.reason,
-      confidence: c.confidence || 0.9
-    }))
+    // Mapear índices de volta para os IDs reais dos e-mails
+    const classifications: EmailClassification[] = parsed.classifications.map((c: any) => {
+      const emailIndex = parseInt(c.index) - 1
+      const email = emails[emailIndex]
+      
+      if (!email) {
+        console.warn(`⚠️ E-mail não encontrado para índice ${c.index}`)
+      }
+
+      return {
+        id: email?.id || c.index.toString(),
+        category: c.category,
+        reason: c.reason || 'Sem motivo',
+        confidence: c.confidence || 0.9
+      }
+    })
 
     // Calcular resumo
     const summary = {
@@ -92,14 +127,36 @@ Retorne APENAS o JSON com as classificações.`
       junk: classifications.filter(c => c.category === 'Lixo').length
     }
 
+    console.log(`✅ Classificação concluída: ${summary.important} importantes, ${summary.promotion} promoções, ${summary.junk} lixo`)
+
     return {
       classifications,
       summary
     }
-  } catch (error) {
-    console.error('Erro ao classificar e-mails:', error)
-    throw new Error('Falha ao classificar e-mails com IA')
+  } catch (error: any) {
+    console.error('❌ Erro ao classificar e-mails com OpenAI:', error)
+    
+    // Log detalhado do erro
+    if (error.response) {
+      console.error('Resposta de erro da API:', {
+        status: error.response.status,
+        data: error.response.data
+      })
+    }
+    
+    if (error.message?.includes('API key')) {
+      throw new Error('Chave da OpenAI inválida ou não configurada')
+    }
+    
+    throw new Error(`Falha ao classificar e-mails: ${error.message || 'Erro desconhecido'}`)
   }
+}
+
+/**
+ * Alias para manter compatibilidade com código existente
+ */
+export async function analyzeEmails(emails: ParsedEmail[]): Promise<AnalysisResult> {
+  return classifyEmails(emails)
 }
 
 /**
