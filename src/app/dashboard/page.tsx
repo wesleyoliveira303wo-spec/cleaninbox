@@ -1,4 +1,8 @@
 'use client'
+export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+export const revalidate = 0
+export const runtime = 'edge'
 
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
@@ -21,7 +25,9 @@ interface AnalysisResult {
 }
 
 export default function Dashboard() {
-  const { data: session, status } = useSession()
+  const sessionData = useSession()
+  const session = sessionData?.data
+  const status = sessionData?.status
   const router = useRouter()
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
@@ -198,7 +204,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <div className="hidden md:flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-lg border border-green-500/30">
               <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-              {session.user?.image && (
+              {session?.user?.image && (
                 <img 
                   src={session.user.image} 
                   alt={session.user.name || 'User'} 
@@ -206,8 +212,8 @@ export default function Dashboard() {
                 />
               )}
               <div>
-                <div className="text-sm font-semibold text-white">Conectado como {session.user?.name}</div>
-                <div className="text-xs text-gray-400">{session.user?.email}</div>
+                <div className="text-sm font-semibold text-white">Conectado como {session?.user?.name}</div>
+                <div className="text-xs text-gray-400">{session?.user?.email}</div>
               </div>
             </div>
             
@@ -233,7 +239,7 @@ export default function Dashboard() {
         {/* Welcome Section */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">
-            Bem-vindo, {session.user?.name?.split(' ')[0]} 👋
+            Bem-vindo, {session?.user?.name?.split(' ')[0]} 👋
           </h1>
           <p className="text-gray-300 text-lg">
             Sua caixa de entrada está sendo protegida pela nossa IA brasileira 🇧🇷
