@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Mail, Trash2, Zap, Settings, LogOut, Brain } from 'lucide-react'
 
+export const runtime = "edge"
 export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 export const revalidate = 0
