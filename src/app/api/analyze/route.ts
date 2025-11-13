@@ -3,17 +3,24 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/app/api/auth/[...nextauth]/route'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 interface EmailData {
   id: string
   from: string
   subject: string
   snippet: string
   date: string
+}
+
+// Função para criar cliente Supabase sob demanda
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseKey) {
+    return null
+  }
+
+  return createClient(supabaseUrl, supabaseKey)
 }
 
 export async function POST(request: NextRequest) {
@@ -65,11 +72,20 @@ Responda APENAS com um JSON válido no formato:
 }`
 
     // Chamar OpenAI GPT-4
+    const openaiApiKey = process.env.OPENAI_API_KEY
+    
+    if (!openaiApiKey) {
+      return NextResponse.json(
+        { success: false, error: 'OpenAI API não configurada' },
+        { status: 500 }
+      )
+    }
+
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${openaiApiKey}`,
       },
       body: JSON.stringify({
         model: 'gpt-4-turbo-preview',
@@ -95,24 +111,31 @@ Responda APENAS com um JSON válido no formato:
     const openaiData = await openaiResponse.json()
     const aiResponse = JSON.parse(openaiData.choices[0].message.content)
 
-    // Salvar resultados no Supabase
-    const cleanHistory = {
-      user_email: session.user.email,
-      emails_analyzed: emails.length,
-      important_count: aiResponse.summary.important,
-      promotion_count: aiResponse.summary.promotion,
-      junk_count: aiResponse.summary.junk,
-      analysis_date: new Date().toISOString(),
-      classifications: aiResponse.classifications,
-    }
+    // Salvar resultados no Supabase (se configurado)
+    let savedToDatabase = false
+    const supabase = getSupabaseClient()
+    
+    if (supabase) {
+      const cleanHistory = {
+        user_email: session.user.email,
+        emails_analyzed: emails.length,
+        important_count: aiResponse.summary.important,
+        promotion_count: aiResponse.summary.promotion,
+        junk_count: aiResponse.summary.junk,
+        analysis_date: new Date().toISOString(),
+        classifications: aiResponse.classifications,
+      }
 
-    const { data: savedData, error: saveError } = await supabase
-      .from('clean_history')
-      .insert(cleanHistory)
-      .select()
+      const { error: saveError } = await supabase
+        .from('clean_history')
+        .insert(cleanHistory)
+        .select()
 
-    if (saveError) {
-      console.error('Erro ao salvar no Supabase:', saveError)
+      if (saveError) {
+        console.error('Erro ao salvar no Supabase:', saveError)
+      } else {
+        savedToDatabase = true
+      }
     }
 
     return NextResponse.json({
@@ -120,7 +143,7 @@ Responda APENAS com um JSON válido no formato:
       data: {
         classifications: aiResponse.classifications,
         summary: aiResponse.summary,
-        savedToDatabase: !saveError,
+        savedToDatabase,
       }
     })
 

@@ -1,13 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Função para criar cliente Supabase sob demanda
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseKey) {
+    return null
+  }
+
+  return createClient(supabaseUrl, supabaseKey)
+}
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = getSupabaseClient()
+
+    // Verificar se Supabase está configurado
+    if (!supabase) {
+      console.warn('Supabase não configurado - variáveis de ambiente ausentes')
+      return NextResponse.json(
+        { success: false, error: 'Supabase não configurado' },
+        { status: 500 }
+      )
+    }
+
     const body = await request.json()
     const { email, name, image, provider } = body
 
