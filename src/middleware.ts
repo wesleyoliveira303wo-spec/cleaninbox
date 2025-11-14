@@ -1,5 +1,9 @@
-export { auth as middleware } from "next-auth/middleware"
+import { auth } from "./app/api/auth/[...nextauth]/route";
+
+export default auth((req) => {
+  // Proteção de rotas
+});
 
 export const config = {
   matcher: ["/dashboard/:path*", "/settings/:path*"],
-}
+};
