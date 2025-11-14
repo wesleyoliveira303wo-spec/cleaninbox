@@ -1,29 +1,57 @@
-import OpenAI from "openai";
-import type { ParsedEmail, EmailClassification, AnalysisResult } from "./types";
+import OpenAI from 'openai'
+import type { ParsedEmail, EmailClassification, AnalysisResult } from './types'
 
+// Validar API Key
+if (!process.env.OPENAI_API_KEY) {
+  console.error('❌ OPENAI_API_KEY não configurada')
+}
+
+// Cliente OpenAI oficial v4
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+  apiKey: process.env.OPENAI_API_KEY
+})
 
-export async function analyzeEmails(emails: ParsedEmail[]): Promise<AnalysisResult> {
+/**
+ * Classifica e-mails usando GPT-4o-mini com a API oficial da OpenAI
+ * Compatível com chaves sk-proj-*
+ */
+export async function classifyEmails(emails: ParsedEmail[]): Promise<AnalysisResult> {
   if (!emails || emails.length === 0) {
     return {
       classifications: [],
-      summary: { important: 0, promotion: 0, junk: 0 },
-    };
+      summary: {
+        important: 0,
+        promotion: 0,
+        junk: 0
+      }
+    }
   }
 
-  const formatted = emails.map((email, index) => ({
+  // Preparar dados dos e-mails para análise
+  const emailsFormatted = emails.map((email, index) => ({
     index: index + 1,
+    id: email.id,
     from: email.from,
     subject: email.subject,
-    snippet: email.snippet,
-  }));
+    snippet: email.snippet
+  }))
 
-  const prompt = `
-Classifique os e-mails abaixo nas categorias: "Importante", "Promoção" ou "Lixo".
-Retorne SOMENTE JSON válido:
+  const prompt = `Você é um assistente especializado em classificar e-mails em português brasileiro.
 
+Classifique cada e-mail em uma das seguintes categorias:
+- "Importante": E-mails de trabalho, bancos, serviços essenciais, confirmações importantes, documentos oficiais
+- "Promoção": E-mails de marketing, ofertas, newsletters comerciais, cupons, propagandas
+- "Lixo": Spam, phishing, e-mails suspeitos, correntes, conteúdo irrelevante ou malicioso
+
+Para cada e-mail, forneça:
+1. O índice do e-mail (campo "index")
+2. A categoria exata ("Importante", "Promoção" ou "Lixo")
+3. Uma breve razão (máximo 50 caracteres)
+
+E-mails para classificar:
+${JSON.stringify(emailsFormatted, null, 2)}
+
+Retorne APENAS um JSON válido no seguinte formato (sem texto adicional):
 {
   "classifications": [
     {
@@ -31,53 +59,179 @@ Retorne SOMENTE JSON válido:
       "category": "Importante",
       "reason": "Fatura bancária"
     }
-  ],
-  "summary": {
-    "important": 0,
-    "promotion": 0,
-    "junk": 0
+  ]
+}`
+
+  try {
+    console.log(`🤖 Analisando ${emails.length} e-mails com GPT-4o-mini...`)
+
+    // Usar a API oficial chat.completions (compatível com sk-proj-*)
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'Você é um assistente especializado em classificar e-mails. Sempre retorne JSON válido.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.3
+    })
+
+    // Extrair texto da resposta
+    const responseText = response.choices[0]?.message?.content
+
+    if (!responseText) {
+      console.error('❌ Resposta vazia da OpenAI')
+      console.error('Estrutura completa da resposta:', JSON.stringify(response, null, 2))
+      throw new Error('Resposta vazia da IA')
+    }
+
+    console.log('✅ Resposta recebida da OpenAI')
+
+    // Parse do JSON
+    let parsed: any
+    try {
+      parsed = JSON.parse(responseText)
+    } catch (parseError) {
+      console.error('❌ Erro ao fazer parse do JSON:', parseError)
+      console.error('Resposta recebida:', responseText)
+      throw new Error('JSON inválido retornado pela IA')
+    }
+
+    // Validar estrutura da resposta
+    if (!parsed.classifications || !Array.isArray(parsed.classifications)) {
+      console.error('❌ Formato de resposta inválido:', parsed)
+      throw new Error('Formato de resposta inválido da IA')
+    }
+    
+    // Mapear índices de volta para os IDs reais dos e-mails
+    const classifications: EmailClassification[] = parsed.classifications.map((c: any) => {
+      const emailIndex = parseInt(c.index) - 1
+      const email = emails[emailIndex]
+      
+      if (!email) {
+        console.warn(`⚠️ E-mail não encontrado para índice ${c.index}`)
+      }
+
+      return {
+        id: email?.id || c.index.toString(),
+        category: c.category,
+        reason: c.reason || 'Sem motivo',
+        confidence: c.confidence || 0.9
+      }
+    })
+
+    // Calcular resumo
+    const summary = {
+      important: classifications.filter(c => c.category === 'Importante').length,
+      promotion: classifications.filter(c => c.category === 'Promoção').length,
+      junk: classifications.filter(c => c.category === 'Lixo').length
+    }
+
+    console.log(`✅ Classificação concluída: ${summary.important} importantes, ${summary.promotion} promoções, ${summary.junk} lixo`)
+
+    return {
+      classifications,
+      summary
+    }
+  } catch (error: any) {
+    console.error('❌ Erro ao classificar e-mails com OpenAI:', error)
+    
+    // Log detalhado do erro
+    if (error.response) {
+      console.error('OPENAI ERROR - Status:', error.response.status)
+      console.error('OPENAI ERROR - Data:', JSON.stringify(error.response.data, null, 2))
+    }
+    
+    if (error.status) {
+      console.error('OPENAI ERROR - Status Code:', error.status)
+    }
+    
+    if (error.code) {
+      console.error('OPENAI ERROR - Code:', error.code)
+    }
+    
+    // Log da mensagem de erro específica
+    if (error.message) {
+      console.error('OPENAI ERROR - Message:', error.message)
+    }
+    
+    // Tratamento de erros específicos
+    if (error.message?.includes('API key') || error.message?.includes('Incorrect API key')) {
+      throw new Error('Chave da OpenAI inválida ou não configurada')
+    }
+    
+    if (error.message?.includes('quota') || error.message?.includes('rate limit')) {
+      throw new Error('Limite de uso da OpenAI atingido')
+    }
+
+    if (error.message?.includes('model') || error.message?.includes('not found')) {
+      throw new Error('Modelo GPT-4o-mini não disponível ou não suportado')
+    }
+    
+    throw new Error(`Erro ao chamar OpenAI API: ${error.message || 'Erro desconhecido'}`)
   }
 }
 
-E-mails:
-${JSON.stringify(formatted, null, 2)}
-  `;
+/**
+ * Alias para manter compatibilidade com código existente
+ */
+export async function analyzeEmails(emails: ParsedEmail[]): Promise<AnalysisResult> {
+  return classifyEmails(emails)
+}
 
-  try {
-    console.log("🔵 Chamando OpenAI Responses API…");
+/**
+ * Classifica um único e-mail
+ */
+export async function classifySingleEmail(email: ParsedEmail): Promise<EmailClassification> {
+  const result = await classifyEmails([email])
+  return result.classifications[0]
+}
 
-    const result = await openai.responses.create({
-      model: "gpt-4o-mini",
-      input: prompt,
-      response_format: { type: "json_object" }
-    });
+/**
+ * Gera um resumo textual da análise
+ */
+export function generateSummaryText(result: AnalysisResult): string {
+  const total = result.classifications.length
+  const { important, promotion, junk } = result.summary
 
-    // *** Extração correta do JSON ***
-    const raw = result.output_text;
-    if (!raw) {
-      console.error("Resposta bruta:", JSON.stringify(result, null, 2));
-      throw new Error("A API retornou resposta vazia.");
-    }
+  return `Analisados ${total} e-mails: ${important} importantes, ${promotion} promoções, ${junk} lixo.`
+}
 
-    const ai = JSON.parse(raw);
+/**
+ * Obtém recomendações de limpeza
+ */
+export function getCleaningRecommendations(result: AnalysisResult) {
+  const recommendations = []
 
-    const classifications: EmailClassification[] = ai.classifications.map((c: any) => ({
-      id: emails[c.index - 1]?.id || String(c.index),
-      category: c.category,
-      reason: c.reason,
-      confidence: 1.0
-    }));
-
-    const summary = {
-      important: classifications.filter(c => c.category === "Importante").length,
-      promotion: classifications.filter(c => c.category === "Promoção").length,
-      junk: classifications.filter(c => c.category === "Lixo").length
-    };
-
-    return { classifications, summary };
-
-  } catch (err: any) {
-    console.error("❌ ERRO OpenAI:", err?.response?.data || err);
-    throw new Error("Erro ao chamar OpenAI API");
+  if (result.summary.junk > 0) {
+    recommendations.push({
+      action: 'delete',
+      count: result.summary.junk,
+      message: `Deletar ${result.summary.junk} e-mail(s) classificado(s) como lixo`
+    })
   }
+
+  if (result.summary.promotion > 0) {
+    recommendations.push({
+      action: 'archive',
+      count: result.summary.promotion,
+      message: `Arquivar ${result.summary.promotion} e-mail(s) de promoção`
+    })
+  }
+
+  if (result.summary.important > 0) {
+    recommendations.push({
+      action: 'keep',
+      count: result.summary.important,
+      message: `Manter ${result.summary.important} e-mail(s) importante(s)`
+    })
+  }
+
+  return recommendations
 }

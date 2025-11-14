@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`📊 Analisando ${emails.length} e-mails para ${session.user.email}`)
 
-    // 6. Analisar e-mails com GPT-4o-mini (API oficial)
+    // 6. Analisar e-mails com GPT-4o-mini
     let result
     try {
       result = await analyzeEmails(emails as ParsedEmail[])
@@ -111,17 +111,47 @@ export async function POST(request: NextRequest) {
       // Validar resultado
       if (!result || !result.classifications || !result.summary) {
         console.error('❌ Resultado da análise inválido ou vazio')
+        console.error('Resultado recebido:', JSON.stringify(result, null, 2))
         throw new Error('Resultado da análise inválido')
       }
       
       console.log(`✅ Análise concluída: ${result.classifications.length} e-mails classificados`)
     } catch (aiError: any) {
       console.error('❌ Erro na análise com IA:', aiError)
-      console.error('OPENAI ERROR:', aiError.message)
       
-      // Log detalhado da mensagem de erro
+      // Log detalhado do erro
+      if (aiError.message) {
+        console.error('OPENAI ERROR - Message:', aiError.message)
+      }
+      
+      if (aiError.response) {
+        console.error('OPENAI ERROR - Response:', JSON.stringify(aiError.response, null, 2))
+      }
+      
+      if (aiError.status) {
+        console.error('OPENAI ERROR - Status:', aiError.status)
+      }
+      
+      if (aiError.code) {
+        console.error('OPENAI ERROR - Code:', aiError.code)
+      }
+      
+      // Determinar tipo de erro
       const errorMessage = aiError.message || 'Erro desconhecido ao chamar OpenAI API'
       
+      // Erro de parsing JSON
+      if (errorMessage.includes('JSON inválido')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'AI_PARSE_ERROR',
+            details: 'JSON retornado pela IA estava inválido'
+          },
+          { status: 500 }
+        )
+      }
+      
+      // Outros erros da IA
       return NextResponse.json(
         { 
           success: false, 
@@ -166,7 +196,10 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('❌ Erro geral ao processar análise:', error)
-    console.error('OPENAI ERROR:', error.message)
+    
+    if (error.message) {
+      console.error('ERROR - Message:', error.message)
+    }
     
     return NextResponse.json(
       { 
