@@ -1,14 +1,10 @@
 import OpenAI from "openai";
 import type { ParsedEmail, EmailClassification, AnalysisResult } from "./types";
 
-// Cliente oficial
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
-/**
- * Analisa lista de e-mails usando OpenAI Responses API
- */
 export async function analyzeEmails(emails: ParsedEmail[]): Promise<AnalysisResult> {
   if (!emails || emails.length === 0) {
     return {
@@ -25,18 +21,16 @@ export async function analyzeEmails(emails: ParsedEmail[]): Promise<AnalysisResu
   }));
 
   const prompt = `
-Você é um modelo especialista em classificar e-mails brasileiros.
-
-Classifique cada e-mail como:
-- "Importante"
-- "Promoção"
-- "Lixo"
-
-Retorne APENAS JSON válido no formato:
+Classifique os e-mails abaixo nas categorias: "Importante", "Promoção" ou "Lixo".
+Retorne SOMENTE JSON válido:
 
 {
   "classifications": [
-    { "index": 1, "category": "Importante", "reason": "Fatura bancária" }
+    {
+      "index": 1,
+      "category": "Importante",
+      "reason": "Fatura bancária"
+    }
   ],
   "summary": {
     "important": 0,
@@ -47,47 +41,43 @@ Retorne APENAS JSON válido no formato:
 
 E-mails:
 ${JSON.stringify(formatted, null, 2)}
-`;
+  `;
 
   try {
-    console.log("🔵 Chamando OpenAI API (Responses)…");
+    console.log("🔵 Chamando OpenAI Responses API…");
 
-    const response = await openai.responses.create({
+    const result = await openai.responses.create({
       model: "gpt-4o-mini",
       input: prompt,
-      response_format: { type: "json_object" },
+      response_format: { type: "json_object" }
     });
 
-    // 🔥 EXTRATOR CORRETO PARA JSON_OBJECT
-    const text =
-      response.output?.[0]?.content?.[0]?.text;
-
-    if (!text) {
-      console.error("Resposta REAIS:", JSON.stringify(response, null, 2));
-      throw new Error("Resposta inválida da OpenAI (sem texto)");
+    // *** Extração correta do JSON ***
+    const raw = result.output_text;
+    if (!raw) {
+      console.error("Resposta bruta:", JSON.stringify(result, null, 2));
+      throw new Error("A API retornou resposta vazia.");
     }
 
-    const ai = JSON.parse(text);
+    const ai = JSON.parse(raw);
 
-    const classifications: EmailClassification[] = ai.classifications.map(
-      (c: any) => ({
-        id: emails[c.index - 1]?.id || String(c.index),
-        category: c.category,
-        reason: c.reason,
-        confidence: 1.0,
-      })
-    );
+    const classifications: EmailClassification[] = ai.classifications.map((c: any) => ({
+      id: emails[c.index - 1]?.id || String(c.index),
+      category: c.category,
+      reason: c.reason,
+      confidence: 1.0
+    }));
 
     const summary = {
       important: classifications.filter(c => c.category === "Importante").length,
       promotion: classifications.filter(c => c.category === "Promoção").length,
-      junk: classifications.filter(c => c.category === "Lixo").length,
+      junk: classifications.filter(c => c.category === "Lixo").length
     };
 
     return { classifications, summary };
 
-  } catch (error: any) {
-    console.error("❌ ERRO OpenAI:", error);
+  } catch (err: any) {
+    console.error("❌ ERRO OpenAI:", err?.response?.data || err);
     throw new Error("Erro ao chamar OpenAI API");
   }
 }
