@@ -1,13 +1,13 @@
 import OpenAI from "openai";
 import type { ParsedEmail, EmailClassification, AnalysisResult } from "./types";
 
-// Criar cliente oficial
+// Cliente oficial
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 });
 
 /**
- * Analisa lista de e-mails usando a API nova da OpenAI (Responses API)
+ * Analisa lista de e-mails usando OpenAI Responses API
  */
 export async function analyzeEmails(emails: ParsedEmail[]): Promise<AnalysisResult> {
   if (!emails || emails.length === 0) {
@@ -32,7 +32,7 @@ Classifique cada e-mail como:
 - "Promoção"
 - "Lixo"
 
-Retorne SOMENTE JSON no formato:
+Retorne APENAS JSON válido no formato:
 
 {
   "classifications": [
@@ -55,13 +55,16 @@ ${JSON.stringify(formatted, null, 2)}
     const response = await openai.responses.create({
       model: "gpt-4o-mini",
       input: prompt,
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
     });
 
-    const text = response.output_text;
+    // 🔥 EXTRATOR CORRETO PARA JSON_OBJECT
+    const text =
+      response.output?.[0]?.content?.[0]?.text;
 
     if (!text) {
-      throw new Error("Resposta vazia da OpenAI");
+      console.error("Resposta REAIS:", JSON.stringify(response, null, 2));
+      throw new Error("Resposta inválida da OpenAI (sem texto)");
     }
 
     const ai = JSON.parse(text);
@@ -83,9 +86,8 @@ ${JSON.stringify(formatted, null, 2)}
 
     return { classifications, summary };
 
-  } catch (err: any) {
-    console.error("❌ ERRO OpenAI:", err.message);
-    console.error(err);
+  } catch (error: any) {
+    console.error("❌ ERRO OpenAI:", error);
     throw new Error("Erro ao chamar OpenAI API");
   }
 }
